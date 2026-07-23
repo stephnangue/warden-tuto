@@ -1,0 +1,78 @@
+name: policy-mcp-tool-filtering
+
+# Identity provider for the "Filtering MCP Tools with Warden Policy" tutorial.
+#
+# This stack runs only Ory Hydra, which issues JWTs via the OAuth2 client_credentials
+# grant. It uses an ephemeral in-memory SQLite database (DSN=memory): no external DB and
+# no migrate step. State is lost on restart, which is fine for a tutorial.
+#
+# Warden itself is NOT in this compose — you run it as a downloaded binary on the host
+# (`warden server --dev`), so it reaches Hydra at http://localhost:4444 for both token
+# issuance and OIDC discovery. See the README.
+#
+# Override the Hydra image with HYDRA_VERSION (see the co-located .env), e.g.
+#   HYDRA_VERSION=v2.3 docker compose up -d
+
+services:
+  hydra:
+    image: oryd/hydra:${HYDRA_VERSION:-v2.2}
+    container_name: mcp-tool-filtering-hydra
+    ports:
+      - "4444:4444"   # public  (token + OIDC discovery)
+      - "4445:4445"   # admin   (client creation)
+    environment:
+      DSN: memory
+      URLS_SELF_ISSUER: http://localhost:4444
+      URLS_CONSENT: http://localhost:3000/consent
+      URLS_LOGIN: http://localhost:3000/login
+      URLS_LOGOUT: http://localhost:3000/logout
+      SECRETS_SYSTEM: tutorial-secret-change-in-production
+      OIDC_SUBJECT_IDENTIFIERS_SUPPORTED_TYPES: public,pairwise
+      OIDC_SUBJECT_IDENTIFIERS_PAIRWISE_SALT: tutorial-salt-change-in-production
+      SERVE_PUBLIC_CORS_ENABLED: "true"
+      SERVE_PUBLIC_CORS_ALLOWED_ORIGINS: "*"
+      STRATEGIES_ACCESS_TOKEN: jwt
+      TTL_ACCESS_TOKEN: 1h
+      TTL_REFRESH_TOKEN: 720h
+      TTL_ID_TOKEN: 1h
+      LOG_LEVEL: warn
+    networks:
+      - mcp-tool-filtering
+    restart: unless-stopped
+    command: serve all --dev
+
+  hydra-client-init:
+    image: oryd/hydra:${HYDRA_VERSION:-v2.2}
+    container_name: mcp-tool-filtering-hydra-init
+    networks:
+      - mcp-tool-filtering
+    depends_on:
+      hydra:
+        condition: service_started
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        echo 'Waiting for Hydra to be ready...'
+        while ! wget -q --spider http://hydra:4445/health/ready 2>/dev/null; do
+          sleep 2
+        done
+
+        echo 'Creating the my-agent OAuth2 client...'
+        wget -q -O- --post-data='{"client_id":"my-agent","client_name":"My Agent","client_secret":"agent-secret","grant_types":["client_credentials"],"response_types":[],"scope":"api:read api:write","token_endpoint_auth_method":"client_secret_post"}' \
+          --header='Content-Type: application/json' \
+          http://hydra:4445/admin/clients > /dev/null 2>&1 && echo '  [OK] my-agent' || echo '  [SKIP] my-agent (already exists?)'
+
+        echo ''
+        echo '========================================================='
+        echo '  Hydra is ready. Client: my-agent / agent-secret'
+        echo ''
+        echo '  Get a JWT:'
+        echo '    curl -s -X POST http://localhost:4444/oauth2/token \'
+        echo '      -H "Content-Type: application/x-www-form-urlencoded" \'
+        echo '      -d "grant_type=client_credentials&client_id=my-agent&client_secret=agent-secret&scope=api:read api:write"'
+        echo '========================================================='
+
+networks:
+  mcp-tool-filtering:
+    driver: bridge
