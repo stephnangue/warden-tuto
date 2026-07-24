@@ -1,4 +1,4 @@
-name: access-gh-api-roles
+name: access-mcp-grade-rest-api
 
 # Identity provider for the "Using a REST API as Efficiently as an MCP Server with Warden"
 # tutorial.
@@ -24,7 +24,7 @@ name: access-gh-api-roles
 services:
   hydra:
     image: oryd/hydra:${HYDRA_VERSION:-v2.2}
-    container_name: gh-api-roles-hydra
+    container_name: mcp-grade-rest-api-hydra
     ports:
       - "4444:4444"   # public  (token + OIDC discovery)
       - "4445:4445"   # admin   (client creation)
@@ -45,15 +45,15 @@ services:
       TTL_ID_TOKEN: 1h
       LOG_LEVEL: warn
     networks:
-      - gh-api-roles
+      - mcp-grade-rest-api
     restart: unless-stopped
     command: serve all --dev
 
   hydra-client-init:
     image: oryd/hydra:${HYDRA_VERSION:-v2.2}
-    container_name: gh-api-roles-hydra-init
+    container_name: mcp-grade-rest-api-hydra-init
     networks:
-      - gh-api-roles
+      - mcp-grade-rest-api
     depends_on:
       hydra:
         condition: service_started
@@ -89,5 +89,5 @@ services:
         echo '========================================================='
 
 networks:
-  gh-api-roles:
+  mcp-grade-rest-api:
     driver: bridge
