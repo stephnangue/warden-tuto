@@ -30,6 +30,7 @@ Shared across the tutorials (each README repeats what it actually needs):
 | Tutorial | What you'll learn |
 |----------|-------------------|
 | [policy-mcp-tool-filtering](./policy-mcp-tool-filtering/) | Filter which MCP tools an agent can see and call, using a Warden policy — demonstrated live through Claude, before and after the filter. Warden + Ory Hydra (JWT) fronting GitHub's MCP server. |
+| [access-mcp-role-assertion](./access-mcp-role-assertion/) | Give one agent a single identity and four roles, asserting a different one per MCP call — then watch it get refused a repo no role it can assume permits. The answer to ambient authority. Warden + Ory Hydra (JWT) fronting GitHub's MCP server. |
 
 _More tutorials are on the way._
 
