@@ -104,7 +104,7 @@ tutorial's folder:
 
 ```bash
 git clone https://github.com/stephnangue/warden-tuto.git
-cd warden-tuto/access-gh-api-roles
+cd warden-tuto/access-mcp-grade-rest-api
 ```
 
 Everything else below runs from the Warden CLI, so no other files are needed.
