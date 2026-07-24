@@ -4,7 +4,7 @@
 **no GitHub MCP server** fronting it — yet work exactly like an MCP client: it discovers a short
 menu of **roles**, pulls a **tool-sized recipe** for the one it needs, and calls only the endpoints
 that role is allowed to touch. You'll front `api.github.com` with Warden's `github` provider,
-define six roles the agent can assume plus one it cannot, and let Claude run the whole thing with
+define four roles the agent can assume plus one it cannot, and let Claude run the whole thing with
 `gh api`.
 
 The agent still speaks MCP for **discovery** — that's Warden's own always-on interface at
@@ -52,10 +52,10 @@ This is the discovery loop from the MCP role-assertion tutorial —
 the same `list_roles` → `get_skill` → act sequence — but the upstream is a plain REST API, and
 the agent acts with `gh api` instead of MCP tool calls.
 
-### The six roles
+### The four roles
 
-All seven roles front the same `github` mount; each projects a different slice of the GitHub REST
-API. Six bind to the agent's identity; the seventh binds to a different one. The agent **creates
+All five roles front the same `github` mount; each projects a different slice of the GitHub REST
+API. Four bind to the agent's identity; the fifth binds to a different one. The agent **creates
 the repo itself** under the first role, then every other role operates on it.
 
 | Role | What its policy grants (REST endpoints) | Agent can assume? |
@@ -64,17 +64,15 @@ the repo itself** under the first role, then every other role operates on it.
 | `repo-reader` | `GET` repo metadata, README, contents, languages | ✅ |
 | `issue-manager` | list / open / edit / comment on issues | ✅ |
 | `label-curator` | list / create / rename / delete labels | ✅ |
-| `commit-inspector` | read commit history | ✅ |
-| `release-cutter` | list & create releases | ✅ |
 | `collaborator-admin` | add repo collaborators — **bound to another identity** | ❌ |
 
-`repo-creator` shows the two ways a policy reaches fine-grained scope. The five repo-scoped roles
+`repo-creator` shows the two ways a policy reaches fine-grained scope. The three repo-scoped roles
 pin the repo in the **URL path** (`…/repos/+/warden-gh-api/…`). But `POST /user/repos` has no repo
 in its path — the repo doesn't exist yet — so `repo-creator` pins the name in the **request body**
 with a CEL condition: `request.data.name == "warden-gh-api"`. The agent can create that one repo
 and no other.
 
-The seventh role is real and fully functional — it just belongs to a **different principal** (think:
+The fifth role is real and fully functional — it just belongs to a **different principal** (think:
 a human admin). The agent holds the wrong identity for it, so Warden never admits it: the role is
 invisible in `list_roles` and refused at the gateway. That is the whole lesson — the wall is the
 identity binding, checked on every request.
@@ -272,41 +270,7 @@ warden write auth/jwt/role/label-curator \
   token_ttl=1h
 ```
 
-**5. `commit-inspector` — read commit history (read-only):**
-
-```bash
-warden policy write pol-commit-inspector - <<'EOF'
-path "github/role/commit-inspector/gateway/repos/+/warden-gh-api/commits"   { capabilities = ["read"] }
-path "github/role/commit-inspector/gateway/repos/+/warden-gh-api/commits/+" { capabilities = ["read"] }
-EOF
-
-warden write auth/jwt/role/commit-inspector \
-  bound_subject=my-agent \
-  token_policies=pol-commit-inspector \
-  user_claim=sub \
-  cred_spec_name=github-ops \
-  description="read the commit history of warden-gh-api (skill: gh-commit-inspector, url: /v1/github/role/commit-inspector/gateway/)" \
-  token_ttl=1h
-```
-
-**6. `release-cutter` — list and cut releases:**
-
-```bash
-warden policy write pol-release-cutter - <<'EOF'
-path "github/role/release-cutter/gateway/repos/+/warden-gh-api/releases"        { capabilities = ["read", "create"] }
-path "github/role/release-cutter/gateway/repos/+/warden-gh-api/releases/latest" { capabilities = ["read"] }
-EOF
-
-warden write auth/jwt/role/release-cutter \
-  bound_subject=my-agent \
-  token_policies=pol-release-cutter \
-  user_claim=sub \
-  cred_spec_name=github-ops \
-  description="list and create releases on warden-gh-api (skill: gh-release-cutter, url: /v1/github/role/release-cutter/gateway/)" \
-  token_ttl=1h
-```
-
-**7. `collaborator-admin` — add collaborators, bound to a different identity.** The policy is
+**5. `collaborator-admin` — add collaborators, bound to a different identity.** The policy is
 fully functional; the only difference that matters is `bound_subject=admin-agent`, an identity the
 agent does **not** hold. It carries no skill, because the agent will never see it:
 
@@ -507,65 +471,6 @@ warden skill create -name=gh-label-curator -category=custom -requires=gh-via-war
   -description="manage labels on warden-gh-api via gh api" -body-file=gh-label-curator.md
 ````
 
-`gh-commit-inspector`:
-
-````bash
-cat > gh-commit-inspector.md <<'EOF'
-# commit-inspector — read the commit history of warden-gh-api
-
-Uses `gh api` against `$GW`, the gateway from this role's description — see the required
-**gh-via-warden** skill for the recipe. Read-only.
-
-## Endpoints
-
-| Method | rest-path | Purpose |
-|--------|-----------|---------|
-| GET | `repos/{owner}/warden-gh-api/commits` | list commits (newest first) |
-| GET | `repos/{owner}/warden-gh-api/commits/{sha}` | one commit's detail |
-
-`{sha}` may be a full or short SHA, or a branch name.
-
-## Example
-
-```bash
-gh api "$GW/repos/OWNER/warden-gh-api/commits" \
-  -H "Authorization: Bearer $JWT" --jq '.[] | "\(.sha[0:7]) \(.commit.message)"'
-```
-EOF
-
-warden skill create -name=gh-commit-inspector -category=custom -requires=gh-via-warden \
-  -description="read commit history of warden-gh-api via gh api" -body-file=gh-commit-inspector.md
-````
-
-`gh-release-cutter`:
-
-````bash
-cat > gh-release-cutter.md <<'EOF'
-# release-cutter — list and cut releases on warden-gh-api
-
-Uses `gh api` against `$GW`, the gateway from this role's description — see the required
-**gh-via-warden** skill for the recipe.
-
-## Endpoints
-
-| Method | rest-path | Purpose |
-|--------|-----------|---------|
-| GET | `repos/{owner}/warden-gh-api/releases` | list releases |
-| POST | `repos/{owner}/warden-gh-api/releases` | create (`tag_name`, `name`, `body`) |
-| GET | `repos/{owner}/warden-gh-api/releases/latest` | latest published release |
-
-## Example
-
-```bash
-gh api --method POST "$GW/repos/OWNER/warden-gh-api/releases" \
-  -H "Authorization: Bearer $JWT" -f tag_name=v0.1.0 -f name="v0.1.0" --jq '.html_url'
-```
-EOF
-
-warden skill create -name=gh-release-cutter -category=custom -requires=gh-via-warden \
-  -description="list and cut releases on warden-gh-api via gh api" -body-file=gh-release-cutter.md
-````
-
 :::tip
 The point is size. GitHub's OpenAPI description is megabytes; the base recipe plus a role's handful
 of endpoints is a page. The agent gets the same lean, task-shaped menu a GitHub MCP server would
@@ -619,8 +524,8 @@ Open a `claude` session and ask, in plain language:
 
 > **use the warden mcp server to list the roles I can assume**
 
-Claude calls Warden's `list_roles` tool and reports exactly six: `repo-creator`, `repo-reader`,
-`issue-manager`, `label-curator`, `commit-inspector`, and `release-cutter` — each with the
+Claude calls Warden's `list_roles` tool and reports exactly four: `repo-creator`, `repo-reader`,
+`issue-manager`, and `label-curator` — each with the
 description you set. `collaborator-admin` is **not on the list**: Warden only returns roles the
 presented identity is admitted to. The menu the agent plans against is already scoped to its
 identity — just like an MCP `tools/list`.
@@ -637,9 +542,8 @@ exactly one role.
 > **create the `warden-gh-api` repository, initialized with a README**
 
 Claude runs `gh api --method POST …/user/repos -f name=warden-gh-api -F auto_init=true`. The
-`auto_init` gives the repo an initial commit and a `README.md`, so the read and commit tasks below
-have something to work with. Note the response's `full_name` — that's the `OWNER/warden-gh-api` the
-next commands need.
+`auto_init` gives the repo an initial commit and a `README.md`, so the read task below has a file to
+fetch. Note the response's `full_name` — that's the `OWNER/warden-gh-api` the next commands need.
 
 **Read the repo** — `repo-reader`:
 
@@ -653,16 +557,8 @@ next commands need.
 
 > **create a `needs-triage` label on `warden-gh-api`, then rename it to `triage`**
 
-**Inspect commits** — `commit-inspector`:
-
-> **show the commit history of `warden-gh-api`**
-
-**Cut a release** — `release-cutter`:
-
-> **cut a `v0.1.0` release on `warden-gh-api`**
-
 Each request succeeds under its own role, with its own Warden-minted credential, and nothing wider.
-The same agent, holding the same JWT, acted with six different authorities — one per call — and for
+The same agent, holding the same JWT, acted with four different authorities — one per call — and for
 each it loaded only a handful of endpoints, never GitHub's full spec.
 
 ### Step 10 — the two walls
@@ -713,7 +609,7 @@ condition passing:
 { "role": "repo-creator",     "method": "POST",  "path": "github/role/repo-creator/gateway/user/repos", "allowed": true, "condition": "allow" }
 { "role": "repo-reader",      "method": "GET",   "path": "github/role/repo-reader/gateway/repos/OWNER/warden-gh-api/readme", "allowed": true }
 { "role": "issue-manager",    "method": "POST",  "path": "github/role/issue-manager/gateway/repos/OWNER/warden-gh-api/issues", "allowed": true }
-{ "role": "release-cutter",   "method": "POST",  "path": "github/role/release-cutter/gateway/repos/OWNER/warden-gh-api/releases", "allowed": true }
+{ "role": "label-curator",    "method": "PATCH", "path": "github/role/label-curator/gateway/repos/OWNER/warden-gh-api/labels/needs-triage", "allowed": true }
 ```
 
 The forbidden write under `repo-reader` shows the gateway denying it:
@@ -722,8 +618,8 @@ The forbidden write under `repo-reader` shows the gateway denying it:
 { "role": "repo-reader", "method": "POST", "path": "github/role/repo-reader/gateway/repos/OWNER/warden-gh-api/issues", "allowed": false }
 ```
 
-The trail reads as a per-task ledger: which role created the repo, which filed the issue, which cut
-the release — each under its own scoped credential, each attributable to exactly one task. The
+The trail reads as a per-task ledger: which role created the repo, which filed the issue, which
+curated the label — each under its own scoped credential, each attributable to exactly one task. The
 injected GitHub token never appears in the clear — the audit layer salts it to `hmac-sha256:…`.
 
 ## Troubleshooting
@@ -757,8 +653,6 @@ warden skill delete gh-repo-creator
 warden skill delete gh-repo-reader
 warden skill delete gh-issue-manager
 warden skill delete gh-label-curator
-warden skill delete gh-commit-inspector
-warden skill delete gh-release-cutter
 # delete the warden-gh-api repo the agent created (on GitHub, or: gh repo delete OWNER/warden-gh-api)
 # stop the `warden server --dev` process (Ctrl-C in its terminal)
 docker compose down -v
