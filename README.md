@@ -22,7 +22,11 @@ Shared across the tutorials (each README repeats what it actually needs):
 - **Docker** and **Docker Compose**
 - **[Claude Code](https://docs.claude.com/en/docs/claude-code)** — the MCP client used to drive the
   demos
-- The **Warden CLI** on your `PATH` (each tutorial links the download for the version it pins)
+- The **Warden CLI** on your `PATH`, **v0.20.0 or newer** — each tutorial's walkthrough installs
+  the latest release:
+  ```bash
+  curl -sL https://wardengateway.com/install | bash
+  ```
 - Any per-tutorial credential the walkthrough calls out (e.g. a GitHub PAT)
 
 ## Tutorials

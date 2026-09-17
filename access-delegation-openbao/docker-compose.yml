@@ -1,0 +1,72 @@
+# Access delegation for AI agents, on OpenBao.
+#
+# Three services. GitHub's MCP server is remote (api.githubcopilot.com), so
+# there is nothing to run for it — Warden injects a per-user token into the
+# Authorization header on the way out.
+#
+# Demo posture throughout: dev-mode OpenBao with a known root token, in-memory
+# Warden storage, a static seal key on disk, and Keycloak in dev mode. None of that is how you would run any of it in production.
+
+services:
+  openbao:
+    image: openbao/openbao:2.6.2
+    container_name: delegation-openbao
+    command: server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200 -dev-plugin-dir=/openbao/plugins
+    # -dev-plugin-dir makes the external OAuth app engine registerable; up.sh
+    # downloads the binary into ./plugins before this starts.
+    ports:
+      - '${BAO_PORT:-8200}:8200'
+    volumes:
+      - ./plugins:/openbao/plugins
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ['CMD', 'bao', 'status', '-address=http://127.0.0.1:8200']
+      interval: 3s
+      timeout: 2s
+      retries: 30
+
+  # Stands in for a workforce IdP. It issues alice's token, and — via a
+  # protocol mapper on a user attribute — states which agent she authorized,
+  # as the RFC 8693 `may_act` claim. Keycloak builds nested JSON from dotted
+  # claim names, so `may_act.sub` produces {"may_act":{"sub":"agent-1"}}.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: delegation-keycloak
+    command: start-dev --import-realm --http-port=8080
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: 'true'
+    ports:
+      - '${KEYCLOAK_PORT:-8080}:8080'
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e "GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && cat <&3 | grep -q "200 OK"',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+
+  warden:
+    image: ghcr.io/stephnangue/warden:v0.20.0
+    container_name: delegation-warden
+    depends_on:
+      openbao:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    # The image's entrypoint is already `warden server`, so this supplies only
+    # the flags. `-config` cannot be combined with `--dev` (dev mode always uses
+    # inmem storage) and the signer stanza only exists in a config file, so this
+    # runs in normal mode; up.sh initializes it over the API.
+    command: ['--config', '/etc/warden/warden.hcl']
+    ports:
+      - '${WARDEN_PORT:-8400}:8400'
+    volumes:
+      - ./warden.hcl:/etc/warden/warden.hcl:ro
+      - ./.state:/etc/warden/state

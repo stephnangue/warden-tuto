@@ -132,33 +132,49 @@ warden cred spec create github-ops -source github-src \
 
 ### Step 5 — start with NO filter (the "before")
 
-Three small pieces; run them one at a time.
+Four small pieces; run them one at a time.
 
-**1. Write a permissive policy** — every method, every tool:
+Two policies govern an MCP call, and they answer different questions. A **capability policy**
+says which paths the caller may reach; an **MCP policy** says which calls are permitted once
+it gets there. Access is the intersection, so both must be in scope.
+
+**1. Write the capability policy** — this one never changes in this tutorial:
 
 ```bash
-warden policy write mcp-tools - <<'EOF'
+warden policy write mcp-access - <<'EOF'
 path "github-mcp/role/+/gateway*" {
   capabilities = ["create", "read", "delete"]
-  mcp {
-    allowed_methods = ["*"]
-    allowed_tools   = ["*"]
-  }
 }
 EOF
 ```
 
-**2. Create the role** that carries that policy and the GitHub credential:
+**2. Write a permissive MCP policy** — every method, every tool. This is the one we'll rewrite
+in Step 7:
+
+```bash
+warden policy write -type mcp mcp-tools - <<'EOF'
+path "github-mcp/role/+/gateway*" {
+  methods { allowed = ["*"] }
+  tools   { allowed = ["*"] }
+}
+EOF
+```
+
+A bare `*` is the wildcard that matches everything. Writing it out is deliberate: an MCP mount
+with **no** MCP policy in scope denies every call, so "wide open" has to be stated rather than
+left blank — which also keeps it visible in a policy listing and in the audit log.
+
+**3. Create the role** that carries both policies and the GitHub credential:
 
 ```bash
 warden write auth/jwt/role/mcp-user \
-  token_policies=mcp-tools \
+  token_policies=mcp-access,mcp-tools \
   user_claim=sub \
   cred_spec_name=github-ops \
   token_ttl=1h
 ```
 
-**3. Turn on an audit log** so you can watch the decisions:
+**4. Turn on an audit log** so you can watch the decisions:
 
 ```bash
 warden audit enable file -file-path=/tmp/warden-audit.log
@@ -206,25 +222,31 @@ Claude enumerates the **full** GitHub tool set — including write tools like `d
 
 Claude fetches an MCP server's tool list once, when a session starts, and caches it for the whole
 session — so a running session won't notice a policy change. **Exit your `claude` session first**
-(`/exit`), *then* rewrite the **same** policy as an allow-list, plus an explicit deny-list for good
-measure:
+(`/exit`), *then* rewrite the **same** MCP policy as an allow-list, plus an explicit deny-list for
+good measure:
 
 ```bash
-warden policy write mcp-tools - <<'EOF'
+warden policy write -type mcp mcp-tools - <<'EOF'
 path "github-mcp/role/+/gateway*" {
-  capabilities = ["create", "read", "delete"]
-  mcp {
-    allowed_methods = ["tools/list", "tools/call"]
-    allowed_tools   = ["get_*", "list_*", "search_*"]
-    denied_tools    = ["delete_*", "create_*", "update_*", "push_*", "merge_*"]
+  methods {
+    allowed = ["tools/list", "tools/call"]
+  }
+
+  tools {
+    allowed = ["get_*", "list_*", "search_*"]
+    denied  = ["delete_*", "create_*", "update_*", "push_*", "merge_*"]
   }
 }
 EOF
 ```
 
-The block is **deny-by-default**: a tool must match `allowed_tools` and must *not* match `denied_tools`
+Note what you did **not** touch: `mcp-access` and the role are unchanged. The capability grant and
+the tool contract are separate documents precisely so you can tighten what an agent may *do* without
+restating what it may *reach*.
+
+Each family block is **deny-by-default**: a tool must match `allowed` and must *not* match `denied`
 (a deny always wins). Patterns are case-insensitive and use a trailing `*`. The MCP handshake methods
-(`initialize`, `ping`, `notifications/*`) are always exempt.
+(`initialize`, `ping`, `server/discover`, `notifications/*`) are always exempt.
 
 ### Step 8 — ask the same question again (the "after")
 

@@ -159,8 +159,26 @@ warden cred spec create github-ops -source github-src \
 
 ### Step 5 — define the four roles
 
-Each role is a **policy** (what it may do, scoped to one repo) plus a **role binding** (who
-may assume it, which credential it mints). Run the blocks below one at a time.
+Each role is a pair of **policies** (what it may do, scoped to one repo) plus a **role binding**
+(who may assume it, which credential it mints).
+
+Two policy types govern an MCP call and they answer different questions. A **capability policy**
+says which paths the caller may reach; an **MCP policy** says which calls are permitted once it
+gets there. Access is the intersection, so both must be in scope.
+
+Here every role reaches the same path, so they share one capability policy — and differ entirely
+in their tool contract. Write the shared one first:
+
+```bash
+warden policy write pol-mcp-access - <<'EOF'
+path "github-mcp/role/+/gateway*" {
+  capabilities = ["create", "read", "delete"]
+}
+EOF
+```
+
+That is the whole of "may this agent reach the GitHub mount". Everything that distinguishes the
+four roles lives in the MCP policies below. Run the blocks one at a time.
 
 **1. `repo-lifecycle` — create `warden-role-assertion` and write & delete its files.**
 GitHub's MCP server has no repo-*deletion* tool, so a repo's "lifecycle" here is creating it
@@ -173,23 +191,26 @@ that carries neither key — `tools/list`, and the lifecycle handshake — passe
 the tool listing works with no special-case for the method:
 
 ```bash
-warden policy write pol-repo-lifecycle - <<'EOF'
+warden policy write -type mcp pol-repo-lifecycle - <<'EOF'
 path "github-mcp/role/+/gateway*" {
-  capabilities = ["create", "read", "delete"]
-  mcp {
-    allowed_methods = ["tools/list", "tools/call"]
-    allowed_tools   = ["create_repository", "create_or_update_file", "delete_file"]
-    condition = <<-CEL
-      (!has(call.args.name) || call.args.name == "warden-role-assertion") &&
-      (!has(call.args.repo) || call.args.repo == "warden-role-assertion")
-    CEL
+  methods {
+    allowed = ["tools/list", "tools/call"]
   }
+
+  tools {
+    allowed = ["create_repository", "create_or_update_file", "delete_file"]
+  }
+
+  condition = <<-CEL
+    (!has(call.args.name) || call.args.name == "warden-role-assertion") &&
+    (!has(call.args.repo) || call.args.repo == "warden-role-assertion")
+  CEL
 }
 EOF
 
 warden write auth/jwt/role/repo-lifecycle \
   bound_subject=my-agent \
-  token_policies=pol-repo-lifecycle \
+  token_policies=pol-mcp-access,pol-repo-lifecycle \
   user_claim=sub \
   cred_spec_name=github-ops \
   description="create the warden-role-assertion repo and write & delete its files (skill: mcp)" \
@@ -202,22 +223,25 @@ exposes a single `issue_write` tool for both — `method: "create"` opens an iss
 clause scopes it; a `tools/list`, which has no `repo`, passes untouched:
 
 ```bash
-warden policy write pol-issue-triage - <<'EOF'
+warden policy write -type mcp pol-issue-triage - <<'EOF'
 path "github-mcp/role/+/gateway*" {
-  capabilities = ["create", "read", "delete"]
-  mcp {
-    allowed_methods = ["tools/list", "tools/call"]
-    allowed_tools   = ["issue_write"]
-    condition = <<-CEL
-      !has(call.args.repo) || call.args.repo == "warden-role-assertion"
-    CEL
+  methods {
+    allowed = ["tools/list", "tools/call"]
   }
+
+  tools {
+    allowed = ["issue_write"]
+  }
+
+  condition = <<-CEL
+    !has(call.args.repo) || call.args.repo == "warden-role-assertion"
+  CEL
 }
 EOF
 
 warden write auth/jwt/role/issue-triage \
   bound_subject=my-agent \
-  token_policies=pol-issue-triage \
+  token_policies=pol-mcp-access,pol-issue-triage \
   user_claim=sub \
   cred_spec_name=github-ops \
   description="open & close issues on warden-role-assertion (skill: mcp)" \
@@ -227,22 +251,25 @@ warden write auth/jwt/role/issue-triage \
 **3. `repo-reader` — read files in `warden-role-assertion`:**
 
 ```bash
-warden policy write pol-repo-reader - <<'EOF'
+warden policy write -type mcp pol-repo-reader - <<'EOF'
 path "github-mcp/role/+/gateway*" {
-  capabilities = ["create", "read", "delete"]
-  mcp {
-    allowed_methods = ["tools/list", "tools/call"]
-    allowed_tools   = ["get_file_contents"]
-    condition = <<-CEL
-      !has(call.args.repo) || call.args.repo == "warden-role-assertion"
-    CEL
+  methods {
+    allowed = ["tools/list", "tools/call"]
   }
+
+  tools {
+    allowed = ["get_file_contents"]
+  }
+
+  condition = <<-CEL
+    !has(call.args.repo) || call.args.repo == "warden-role-assertion"
+  CEL
 }
 EOF
 
 warden write auth/jwt/role/repo-reader \
   bound_subject=my-agent \
-  token_policies=pol-repo-reader \
+  token_policies=pol-mcp-access,pol-repo-reader \
   user_claim=sub \
   cred_spec_name=github-ops \
   description="read files in warden-role-assertion (skill: mcp)" \
@@ -254,23 +281,26 @@ identity.** The policy is fully functional; the only difference that matters is
 `bound_subject=admin-agent` — an identity the agent does **not** hold:
 
 ```bash
-warden policy write pol-forbidden - <<'EOF'
+warden policy write -type mcp pol-forbidden - <<'EOF'
 path "github-mcp/role/+/gateway*" {
-  capabilities = ["create", "read", "delete"]
-  mcp {
-    allowed_methods = ["tools/list", "tools/call"]
-    allowed_tools   = ["create_repository", "create_or_update_file", "delete_file"]
-    condition = <<-CEL
-      (!has(call.args.name) || call.args.name == "warden-forbidden") &&
-      (!has(call.args.repo) || call.args.repo == "warden-forbidden")
-    CEL
+  methods {
+    allowed = ["tools/list", "tools/call"]
   }
+
+  tools {
+    allowed = ["create_repository", "create_or_update_file", "delete_file"]
+  }
+
+  condition = <<-CEL
+    (!has(call.args.name) || call.args.name == "warden-forbidden") &&
+    (!has(call.args.repo) || call.args.repo == "warden-forbidden")
+  CEL
 }
 EOF
 
 warden write auth/jwt/role/forbidden-repo-lifecycle \
   bound_subject=admin-agent \
-  token_policies=pol-forbidden \
+  token_policies=pol-mcp-access,pol-forbidden \
   user_claim=sub \
   cred_spec_name=github-ops \
   description="create the warden-forbidden repo and write & delete its files (skill: mcp)" \
