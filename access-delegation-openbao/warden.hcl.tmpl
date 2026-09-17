@@ -1,0 +1,37 @@
+# Rendered to warden.hcl by up.sh, which substitutes the signer token it mints
+# from the scoped policy. Do not edit warden.hcl directly.
+
+log_level = "info"
+api_addr  = "http://warden:8400"
+
+# Demo posture: in-memory storage, so the whole cluster is discarded on `down`.
+storage "inmem" {}
+
+# A static seal auto-unseals from a key file, which keeps the demo to one
+# command. `operator init` is still required — see up.sh.
+seal "static" {
+  current_key_id = "demo-1"
+  current_key    = "file:///etc/warden/state/seal.key"
+}
+
+# Plain HTTP: this is a localhost demo, and Claude Code (the MCP client) does
+# not trust a self-signed certificate without an env-var override.
+listener "tcp" {
+  address     = "0.0.0.0:8400"
+  tls_disable = true
+}
+
+# The OIDC issuer's signing key lives in OpenBao's transit engine and is never
+# read by Warden — signing happens by calling transit/sign/. Warden creates the
+# keys itself on first use and refuses one marked exportable.
+#
+# The token below is scoped to the warden-signer policy (see up.sh): it may
+# create, read and rotate keys under the warden-issuer-key-* prefix and sign
+# with them, and nothing else.
+signer "transit" {
+  address         = "http://openbao:8200"
+  token           = "__SIGNER_TOKEN__"
+  mount_path      = "transit"
+  key_name_prefix = "warden-issuer-key"
+  request_timeout = "10s"
+}

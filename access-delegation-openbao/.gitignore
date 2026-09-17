@@ -1,0 +1,8 @@
+# Rendered from warden.hcl.tmpl by up.sh — contains the signer token.
+warden.hcl
+
+# Generated at runtime.
+.env
+.state/
+.certs/
+plugins/
