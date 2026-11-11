@@ -1,0 +1,5 @@
+substrate/
+build-meta.json
+substrate-idp-ca.pem
+claude-person-agent.yaml
+claude-self-check.yaml

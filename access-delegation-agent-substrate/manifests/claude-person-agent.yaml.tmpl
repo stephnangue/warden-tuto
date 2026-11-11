@@ -1,0 +1,35 @@
+metadata:
+  atespace: claude-agents
+  name: claude-person-agent
+workerSelector:
+  matchLabels:
+    workload: claude-agents
+containers:
+- name: claude
+  image: ${IMAGE}
+  env:
+  - name: MODEL
+    value: "haiku"
+  - name: ANTHROPIC_BASE_URL
+    value: "http://warden.warden.svc.cluster.local:8400/v1/anthropic/role/actor-claude/gateway"
+  - name: WARDEN_ON_BEHALF_URL
+    value: "http://warden-on-behalf.warden.svc.cluster.local:8400"
+  - name: GIT_GATEWAY_PATH
+    value: "/v1/github-actor/role/github-git/gateway"
+  - name: GITHUB_MCP_GATEWAY_PATH
+    value: "/v1/github-mcp-actor/role/github-tools/gateway"
+  - name: K8S_GATEWAY_PATH
+    value: "/v1/k8s-actor/role/kube-ops/gateway"
+  securityContext:
+    capabilities:
+      add: ["SETUID", "SETGID"]
+  wakeupProbe:
+    httpGet:
+      path: /healthz
+      port: 80
+resources:
+  limits:
+    cpuMillicores: 1000
+    memoryBytes: 536870912 # 512Mi
+snapshotConfig:
+  preferredFidelity: SNAPSHOT_FIDELITY_MEMORY

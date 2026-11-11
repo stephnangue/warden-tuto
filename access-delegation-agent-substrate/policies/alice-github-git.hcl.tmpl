@@ -1,0 +1,5 @@
+# git clone, fetch and push for Alice's agent, in Alice's alice-agent-* repositories only.
+path "github-actor/role/+/gateway/${GITHUB_USER}/alice-agent-*" {
+  capabilities = ["read", "create", "update"]
+  condition    = "user.present && user.metadata.may_act_sub == agent.principal && user.principal == 'alice'"
+}

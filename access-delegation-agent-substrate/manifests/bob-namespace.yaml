@@ -1,0 +1,170 @@
+# Bob's namespace, the ServiceAccount his agent works as, and the account
+# Warden uses to mint that ServiceAccount's tokens.
+#
+# Pod Security's baseline level refuses privileged pods, host paths and the
+# host's network: a pod created here cannot reach the node and, through it,
+# the rest of the cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bob
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+---
+# What Bob's agent can do: run his app in the bob namespace. It reads pods,
+# logs, events, services and replica sets, changes deployments and config maps,
+# and runs short-lived pods to check its work. No secrets, no tokens, nothing
+# outside the namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bob-agent
+  namespace: bob
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bob-agent-ops
+  namespace: bob
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "services", "endpoints", "events", "configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["create", "delete"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["create", "update", "patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/scale"]
+  verbs: ["update", "patch"]
+- apiGroups: ["events.k8s.io"]
+  resources: ["events"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bob-agent-ops
+  namespace: bob
+subjects:
+- kind: ServiceAccount
+  name: bob-agent
+  namespace: bob
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bob-agent-ops
+---
+# Warden's source account. It may mint tokens for bob-agent only, and for
+# itself so Warden can rotate its own token.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: warden-token-creator
+  namespace: warden
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mint-bob-agent-tokens
+  namespace: bob
+rules:
+- apiGroups: [""]
+  resources: ["serviceaccounts/token"]
+  resourceNames: ["bob-agent"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["serviceaccounts"]
+  resourceNames: ["bob-agent"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: warden-mints-bob-agent-tokens
+  namespace: bob
+subjects:
+- kind: ServiceAccount
+  name: warden-token-creator
+  namespace: warden
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mint-bob-agent-tokens
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rotate-own-token
+  namespace: warden
+rules:
+- apiGroups: [""]
+  resources: ["serviceaccounts/token"]
+  resourceNames: ["warden-token-creator"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["serviceaccounts"]
+  resourceNames: ["warden-token-creator"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: warden-token-creator-rotates
+  namespace: warden
+subjects:
+- kind: ServiceAccount
+  name: warden-token-creator
+  namespace: warden
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rotate-own-token
+---
+# Bob's web app, broken on purpose: its command points nginx at a config file
+# that does not exist, so the container exits and the pod crash-loops.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: bob
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        command: ["nginx", "-g", "daemon off;", "-c", "/etc/nginx/conf.d/web.conf"]
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: bob
+spec:
+  selector:
+    app: web
+  ports:
+  - port: 80
+    targetPort: 80
