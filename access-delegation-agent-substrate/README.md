@@ -55,6 +55,7 @@ enough. It stops at the first error.
 ./setup.sh          # steps 1 to 10
 ./setup.sh 3-7      # a range: after a Warden restart, for example
 ./setup.sh stop     # stop the port-forward and the proxies
+./setup.sh down     # stop them and delete the cluster (it asks first)
 ```
 
 It asks first for the Anthropic API key, your GitHub login and the GitHub token (create
@@ -572,8 +573,8 @@ with only `claude-bob`.
 ## Clean up
 
 On GitHub, delete the `alice-agent-*` repositories and the token. Stop the proxies with
-`kill %1 %2` in the agents tab and the port-forward with Ctrl-C (or `./setup.sh stop` if
-`setup.sh` started them), then, from `substrate/`:
+`kill %1 %2` in the agents tab and the port-forward with Ctrl-C, then, from `substrate/`
+(or run `./setup.sh down`, which does both):
 
 ```bash
 ./hack/delete-kind-cluster.sh

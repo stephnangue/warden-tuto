@@ -7,6 +7,8 @@
 #                       keeps everything in memory)
 #   ./setup.sh 6        one step
 #   ./setup.sh stop     stop the port-forward and the proxies it started
+#   ./setup.sh down     stop them, delete the kind cluster and its registry,
+#                       and remove the files the steps wrote
 #
 # It asks first for what the steps need: the Anthropic API key (step 4), your
 # GitHub login and token (step 6). Keys are read without echo, or taken from
@@ -58,6 +60,24 @@ stop_background() {
     rm -f "$f"
   done
   echo "stopped"
+}
+
+down() {
+  printf 'Delete the kind cluster "kind" and its image registry? [y/N] '
+  local answer
+  read -r answer || true
+  [ "$answer" = y ] || { echo "nothing deleted"; exit 1; }
+  stop_background
+  if [ -d "$SUBSTRATE" ]; then
+    # kind.sh finds its repository from the current directory.
+    (cd "$SUBSTRATE" && hack/delete-kind-cluster.sh)
+  else
+    echo "no substrate/ folder: delete the kind cluster with kind delete cluster" >&2
+  fi
+  rm -rf "$STATE" $EXAMPLE/build-meta.json $EXAMPLE/substrate-idp-ca.pem \
+    $EXAMPLE/claude-person-agent.yaml $EXAMPLE/claude-self-check.yaml
+  echo "The substrate/ clone is kept for the next run."
+  echo "On GitHub, delete the alice-agent-* repositories and the token."
 }
 
 port_forward() {
@@ -377,18 +397,20 @@ golden() {
 
 step10() {
   say "10. The agents' proxies"
+  port_forward
   background proxy-claude-alice 8001 kubectl ate proxy actor claude-alice 8001:80 -a claude-agents
   background proxy-claude-bob 8002 kubectl ate proxy actor claude-bob 8002:80 -a claude-agents
 }
 
 usage() {
-  sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' >&2
+  awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0" >&2
   exit "${1:-2}"
 }
 
 steps=${1:-1-10}
 case "$steps" in
   stop) stop_background; exit 0 ;;
+  down) down; exit 0 ;;
   -h | --help | help) usage 0 ;;
   [0-9]-[0-9] | [0-9]-10 | 10-10) first=${steps%-*} last=${steps#*-} ;;
   [0-9] | 10) first=$steps last=$steps ;;
