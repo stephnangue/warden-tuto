@@ -40,9 +40,29 @@ v1.37.0, under Colima on an Apple Silicon Mac.
 | `policies/` | Warden policies: Bob's namespace, Alice's GitHub |
 | `skills/` | The skills Warden serves the agents: how each role is reached from the sandbox |
 | `ask.sh` | `ask <agent> "<prompt>" as "$TOKEN"`: send a prompt for a person |
+| `setup.sh` | Steps 1 to 10 in one command |
 
 Three terminal tabs: the **main tab** for every command, a **Warden tab** for a
 port-forward, and an **agents tab** for one proxy per agent.
+
+### Or run the setup in one command
+
+`setup.sh` runs the commands of steps 1 to 9 as written below, then starts the agents'
+proxies of step 10. The port-forward and the proxies run in the background, so one tab is
+enough. It stops at the first error.
+
+```bash
+./setup.sh          # steps 1 to 10
+./setup.sh 3-7      # a range: after a Warden restart, for example
+./setup.sh stop     # stop the port-forward and the proxies
+./setup.sh down     # stop them and delete the cluster (it asks first)
+```
+
+It asks first for the Anthropic API key, your GitHub login and the GitHub token (create
+the token as step 6 says), without echoing the keys, so the long install then runs
+unattended. When it is done, it prints what to type in your shell to ask the agents, from
+step 10 on. Step 1 keeps an existing kind cluster named `kind`: Substrate's own script
+would delete it.
 
 ## 1. The cluster and Agent Substrate
 
@@ -88,7 +108,7 @@ warden status
 ```
 
 Warden runs as a dev playground, in memory: a restarted pod starts over, and you redo
-steps 3 to 7. The playground also gives you people: `warden dev jwt user <name>` issues
+steps 3 to 7 (`./setup.sh 3-7`). The playground also gives you people: `warden dev jwt user <name>` issues
 a person's token, and its `auth/user/` mount admits them. Warden has two Service names
 for the same pods, `warden` and `warden-on-behalf`, because Substrate's egress rules
 apply per host: the agent's own calls go to the first, its calls for a person to the
@@ -553,7 +573,8 @@ with only `claude-bob`.
 ## Clean up
 
 On GitHub, delete the `alice-agent-*` repositories and the token. Stop the proxies with
-`kill %1 %2` in the agents tab and the port-forward with Ctrl-C, then, from `substrate/`:
+`kill %1 %2` in the agents tab and the port-forward with Ctrl-C, then, from `substrate/`
+(or run `./setup.sh down`, which does both):
 
 ```bash
 ./hack/delete-kind-cluster.sh
@@ -568,6 +589,7 @@ On GitHub, delete the `alice-agent-*` repositories and the token. Stop the proxi
 | `cannot start claude: spawn EPERM` | The actor template lacks `SETUID` and `SETGID`. |
 | `rotation_period … is below the minimum allowed 24h0m0s` | Warden's default minimum; rotate every 24 hours with a longer-lived token. |
 | An agent reports that Warden refused a call you expected to work | `warden dev audit -principal actor/claude-agents/<agent> -decision deny -limit 3` gives the reason. |
+| `API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)` | The agent has no egress policy, so its sandbox resolves no name. `kubectl ate get egress-policy <agent> -a claude-agents` says so; create it as in step 9. |
 | `actor … unavailable: no worker has room for the actor` (`503`) | Both workers hold running agents; suspend the one you left running. |
 | `X-User-Token must carry the JWT of the person this prompt is for` (`400`) | `ask` needs `as "$TOKEN"`. |
 | `a run left … that could not be removed; recreate this agent` (`503`) | The server could not clear what a run left, so it refuses the next person. Delete the actor and create it again. |
