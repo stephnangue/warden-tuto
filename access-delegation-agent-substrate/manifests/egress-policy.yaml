@@ -1,0 +1,25 @@
+rules:
+# Calls as the agent itself: the actor JWT goes in Authorization.
+- http:
+    hostnames: ["warden.warden.svc.cluster.local"]
+    ports:
+      numbers: [8400]
+    effects:
+      replaceHeaders:
+      - header: Authorization
+        prefix: "Bearer "
+        actorJwt:
+          audiences: ["warden"]
+          expirationSeconds: 900
+# Calls for a person: Authorization carries the person's token untouched, and
+# the actor JWT goes in X-Warden-Agent-Token.
+- http:
+    hostnames: ["warden-on-behalf.warden.svc.cluster.local"]
+    ports:
+      numbers: [8400]
+    effects:
+      replaceHeaders:
+      - header: X-Warden-Agent-Token
+        actorJwt:
+          audiences: ["warden"]
+          expirationSeconds: 900

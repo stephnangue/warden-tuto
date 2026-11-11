@@ -1,0 +1,11 @@
+# Which GitHub tools Alice's agent sees and how it may call them. One branch
+# per tool: a tool not named here, in any spelling, matches none and is
+# refused. A repository is created only private, in Alice's own account (no
+# organization), and named alice-agent-*; every other call names one of those
+# repositories. Names are matched whole, so no slash or dot segment can reach
+# another repository. No delete tool is offered at all.
+path "github-mcp-actor/role/+/gateway*" {
+  methods { allowed = ["tools/list", "tools/call", "subscriptions/listen", "prompts/list"] }
+  tools   { allowed = ["get_me", "create_repository", "get_file_contents", "list_branches", "create_pull_request", "pull_request_read"] }
+  condition = "call.method != 'tools/call' || call.tool == 'get_me' || (call.tool == 'create_repository' && has(call.args.name) && call.args.name.matches('^alice-agent-[A-Za-z0-9._-]+$') && has(call.args.private) && call.args.private == true && !has(call.args.organization)) || (call.tool in ['get_file_contents', 'list_branches', 'create_pull_request', 'pull_request_read'] && has(call.args.owner) && call.args.owner == '${GITHUB_USER}' && has(call.args.repo) && call.args.repo.matches('^alice-agent-[A-Za-z0-9._-]+$'))"
+}

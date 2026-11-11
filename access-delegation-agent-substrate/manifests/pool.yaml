@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: claude-agents
+---
+apiVersion: ate.dev/v1
+kind: WorkerPool
+metadata:
+  name: claude-workerpool
+  namespace: claude-agents
+  labels:
+    workload: claude-agents
+spec:
+  replicas: 2
+  workerImage: ko://go.ate.dev/substrate/cmd/ateworker-gvisor
+  template:
+    resources:
+      limits:
+        cpu: "1"
+        memory: 768Mi
+      requests:
+        cpu: 250m
+        memory: 768Mi
+  sandboxClasses:
+  - name: gvisor

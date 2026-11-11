@@ -1,0 +1,5 @@
+# Alice, through the agent she named in may_act, on GitHub's MCP server.
+path "github-mcp-actor/role/+/gateway*" {
+  capabilities = ["read", "create", "update", "delete", "list"]
+  condition    = "user.present && user.metadata.may_act_sub == agent.principal && user.principal == 'alice'"
+}
