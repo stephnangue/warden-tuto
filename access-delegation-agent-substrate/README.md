@@ -73,12 +73,18 @@ kubectl apply -f $EXAMPLE/manifests/warden-playground.yaml
 kubectl -n warden rollout status deploy/warden
 ```
 
-In the Warden tab: `kubectl -n warden port-forward svc/warden 8400:8400`. Back in the
-main tab:
+**In the Warden tab**, forward Warden's port to your machine, and leave it running:
+
+```bash
+kubectl -n warden port-forward svc/warden 8400:8400
+```
+
+**Back in the main tab:**
 
 ```bash
 export WARDEN_ADDR=http://127.0.0.1:8400
 export WARDEN_TOKEN=root
+warden status
 ```
 
 Warden runs as a dev playground, in memory: a restarted pod starts over, and you redo
@@ -425,14 +431,14 @@ Claude Code as another user.
 
 ## 10. Ask the agents to work
 
-In the agents tab:
+**In the agents tab**, open one proxy per agent, and leave them running:
 
 ```bash
 kubectl ate proxy actor claude-alice 8001:80 -a claude-agents &
 kubectl ate proxy actor claude-bob   8002:80 -a claude-agents &
 ```
 
-In the main tab:
+**Back in the main tab:**
 
 ```bash
 . $EXAMPLE/ask.sh
@@ -505,8 +511,13 @@ warden identity group update bob-agent -json '{"rules": [
 ]}'
 ```
 
-In the agents tab: `kubectl ate proxy actor claude-check 8003:80 -a claude-agents &`. In
-the main tab:
+**In the agents tab:**
+
+```bash
+kubectl ate proxy actor claude-check 8003:80 -a claude-agents &
+```
+
+**Back in the main tab:**
 
 ```bash
 CHECK_TOKEN=$(warden dev jwt user bob -may-act actor/claude-agents/claude-check)
